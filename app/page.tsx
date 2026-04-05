@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 
-type Vino = {
+type Wine = {
   id: string;
   nombre: string;
   bodega: string;
@@ -13,11 +13,15 @@ type Vino = {
   ubicacion: string;
   precio: string;
   favorita: boolean;
+  comentario: string;
+  resena: string;
+  puntaje: string;
+  volverComprar: boolean;
 };
 
-const STORAGE_KEY = "vinoxamigos_cava";
+const STORAGE_KEY = "vinoxamigos_cava_v4";
 
-const emptyForm: Vino = {
+const emptyForm: Wine = {
   id: "",
   nombre: "",
   bodega: "",
@@ -28,160 +32,217 @@ const emptyForm: Vino = {
   ubicacion: "",
   precio: "",
   favorita: false,
+  comentario: "",
+  resena: "",
+  puntaje: "",
+  volverComprar: false,
 };
 
 function uid() {
-  return Math.random().toString(36).slice(2, 10);
+  return Math.random().toString(36).slice(2, 11);
 }
 
 export default function Page() {
-  const [vinos, setVinos] = useState<Vino[]>([]);
-  const [form, setForm] = useState<Vino>(emptyForm);
+  const [wines, setWines] = useState<Wine[]>([]);
+  const [form, setForm] = useState<Wine>(emptyForm);
   const [search, setSearch] = useState("");
+  const [onlyFavorites, setOnlyFavorites] = useState(false);
 
   useEffect(() => {
     try {
       const saved = localStorage.getItem(STORAGE_KEY);
       if (saved) {
-        setVinos(JSON.parse(saved));
+        setWines(JSON.parse(saved));
       }
     } catch (error) {
-      console.error("No se pudo leer la cava guardada", error);
+      console.error("Error leyendo datos guardados", error);
     }
   }, []);
 
   useEffect(() => {
     try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(vinos));
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(wines));
     } catch (error) {
-      console.error("No se pudo guardar la cava", error);
+      console.error("Error guardando datos", error);
     }
-  }, [vinos]);
+  }, [wines]);
 
-  function handleChange<K extends keyof Vino>(field: K, value: Vino[K]) {
+  function updateForm<K extends keyof Wine>(field: K, value: Wine[K]) {
     setForm((prev) => ({ ...prev, [field]: value }));
   }
 
-  function guardarVino() {
-    if (!form.nombre.trim()) return;
-    if (!form.bodega.trim()) return;
+  function saveWine() {
+    if (!form.nombre.trim() || !form.bodega.trim()) {
+      alert("Completá al menos nombre y bodega.");
+      return;
+    }
 
-    const vinoAguardar: Vino = {
+    const payload: Wine = {
       ...form,
       id: form.id || uid(),
-      cantidad: Number(form.cantidad) || 1,
+      cantidad: Math.max(0, Number(form.cantidad) || 0),
     };
 
-    setVinos((prev) => {
-      const existe = prev.some((v) => v.id === vinoAguardar.id);
-      if (existe) {
-        return prev.map((v) => (v.id === vinoAguardar.id ? vinoAguardar : v));
+    setWines((prev) => {
+      const exists = prev.some((wine) => wine.id === payload.id);
+      if (exists) {
+        return prev.map((wine) => (wine.id === payload.id ? payload : wine));
       }
-      return [vinoAguardar, ...prev];
+      return [payload, ...prev];
     });
 
     setForm(emptyForm);
-  }
-
-  function editarVino(vino: Vino) {
-    setForm(vino);
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
-  function borrarVino(id: string) {
-    setVinos((prev) => prev.filter((v) => v.id !== id));
+  function editWine(wine: Wine) {
+    setForm(wine);
+    window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
-  function toggleFavorita(id: string) {
-    setVinos((prev) =>
-      prev.map((v) =>
-        v.id === id ? { ...v, favorita: !v.favorita } : v
+  function cancelEdit() {
+    setForm(emptyForm);
+  }
+
+  function deleteWine(id: string) {
+    const ok = window.confirm("¿Querés borrar este vino?");
+    if (!ok) return;
+    setWines((prev) => prev.filter((wine) => wine.id !== id));
+  }
+
+  function toggleFavorite(id: string) {
+    setWines((prev) =>
+      prev.map((wine) =>
+        wine.id === id ? { ...wine, favorita: !wine.favorita } : wine
       )
     );
   }
 
-  const vinosFiltrados = useMemo(() => {
+  function openOneBottle(id: string) {
+    setWines((prev) =>
+      prev.map((wine) => {
+        if (wine.id !== id) return wine;
+        return { ...wine, cantidad: Math.max(0, wine.cantidad - 1) };
+      })
+    );
+  }
+
+  function addOneBottle(id: string) {
+    setWines((prev) =>
+      prev.map((wine) => {
+        if (wine.id !== id) return wine;
+        return { ...wine, cantidad: wine.cantidad + 1 };
+      })
+    );
+  }
+
+  const filteredWines = useMemo(() => {
     const term = search.toLowerCase().trim();
 
-    if (!term) return vinos;
-
-    return vinos.filter((vino) =>
-      [
-        vino.nombre,
-        vino.bodega,
-        vino.corte,
-        vino.region,
-        vino.cosecha,
-        vino.ubicacion,
-        vino.precio,
+    return wines.filter((wine) => {
+      const searchableText = [
+        wine.nombre,
+        wine.bodega,
+        wine.corte,
+        wine.region,
+        wine.cosecha,
+        wine.ubicacion,
+        wine.precio,
+        wine.comentario,
+        wine.resena,
+        wine.puntaje,
       ]
         .join(" ")
-        .toLowerCase()
-        .includes(term)
-    );
-  }, [vinos, search]);
+        .toLowerCase();
 
-  const totalBotellas = vinos.reduce((acc, vino) => acc + Number(vino.cantidad || 0), 0);
-  const etiquetas = vinos.length;
-  const favoritas = vinos.filter((vino) => vino.favorita).length;
+      const matchesSearch = !term || searchableText.includes(term);
+      const matchesFavorite = !onlyFavorites || wine.favorita;
+
+      return matchesSearch && matchesFavorite;
+    });
+  }, [wines, search, onlyFavorites]);
+
+  const winesInCellar = filteredWines.filter((wine) => wine.cantidad > 0);
+  const winesConsumed = filteredWines.filter((wine) => wine.cantidad === 0);
+
+  const totalBottles = wines.reduce((acc, wine) => acc + wine.cantidad, 0);
+  const totalLabels = wines.length;
+  const totalFavorites = wines.filter((wine) => wine.favorita).length;
 
   return (
-    <main className="min-h-screen bg-gradient-to-br from-[#5C1242] via-[#3a0f2a] to-[#16060f] text-white">
-      <div className="mx-auto max-w-6xl px-4 py-8 md:px-6 md:py-10">
-        <header className="mb-8 rounded-3xl border border-white/10 bg-white/5 p-5 shadow-2xl backdrop-blur md:p-7">
-          <div className="flex flex-col gap-5 md:flex-row md:items-center md:justify-between">
+    <main className="min-h-screen bg-gradient-to-br from-[#5C1242] via-[#3b112c] to-[#17070f] text-white">
+      <div className="mx-auto max-w-7xl px-4 py-8 md:px-6 md:py-10">
+        <header className="mb-8 rounded-[28px] border border-white/10 bg-white/5 p-5 shadow-2xl backdrop-blur md:p-7">
+          <div className="flex flex-col gap-6 md:flex-row md:items-center md:justify-between">
             <div className="flex items-center gap-4">
               <img
                 src="/vinoxamigos.png"
                 alt="Vinoxamigos"
-                className="h-20 w-20 rounded-3xl bg-white p-2 object-contain shadow-lg"
+                className="h-16 w-16 shrink-0 object-contain md:h-20 md:w-20"
               />
+
               <div>
                 <h1 className="text-4xl font-bold tracking-tight md:text-5xl">
                   Vinoxamigos
                 </h1>
-                <p className="mt-2 max-w-2xl text-sm text-white/80 md:text-base">
-                  Tu cava personal online. Cargá botellas, organizá añadas y
-                  controlá tu stock sin pelearte con planillas.
+                <p className="mt-2 max-w-2xl text-sm leading-6 text-white/80 md:text-base">
+                  Tu cava personal online. Cargá botellas, seguí el stock,
+                  registrá reseñas y separá lo que todavía tenés de lo que ya
+                  quedó en el recuerdo.
                 </p>
               </div>
             </div>
 
-            <div className="grid grid-cols-3 gap-3 md:min-w-[320px]">
-              <StatCard label="Botellas" value={String(totalBotellas)} />
-              <StatCard label="Etiquetas" value={String(etiquetas)} />
-              <StatCard label="Favoritas" value={String(favoritas)} />
+            <div className="grid grid-cols-3 gap-3 md:min-w-[340px]">
+              <StatCard label="Botellas" value={String(totalBottles)} />
+              <StatCard label="Etiquetas" value={String(totalLabels)} />
+              <StatCard label="Favoritas" value={String(totalFavorites)} />
             </div>
           </div>
         </header>
 
-        <section className="mb-8 rounded-3xl border border-white/10 bg-white/6 p-5 shadow-xl backdrop-blur md:p-6">
-          <div className="mb-5">
-            <label
-              htmlFor="buscador"
-              className="mb-2 block text-sm font-medium text-white/90"
+        <section className="mb-8 rounded-[28px] border border-white/10 bg-white/5 p-5 shadow-2xl backdrop-blur md:p-6">
+          <div className="mb-5 flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
+            <div className="w-full md:max-w-xl">
+              <label
+                htmlFor="search"
+                className="mb-2 block text-sm font-medium text-white/90"
+              >
+                Buscar vino
+              </label>
+              <input
+                id="search"
+                type="text"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Nombre, bodega, región, cosecha, reseña..."
+                className="w-full rounded-2xl border border-white/20 bg-white px-4 py-3 text-black placeholder:text-gray-500 shadow-lg outline-none transition focus:border-white/40"
+              />
+            </div>
+
+            <button
+              type="button"
+              onClick={() => setOnlyFavorites((prev) => !prev)}
+              className={`rounded-2xl px-4 py-3 text-sm font-semibold transition ${
+                onlyFavorites
+                  ? "bg-amber-300 text-[#3b112c]"
+                  : "bg-white/10 text-white hover:bg-white/15"
+              }`}
             >
-              Buscar vino
-            </label>
-            <input
-              id="buscador"
-              type="text"
-              placeholder="Nombre, bodega, región, cosecha..."
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              className="w-full rounded-2xl border border-white/20 bg-white px-4 py-3 text-base text-black placeholder:text-gray-500 shadow-lg outline-none ring-0 transition focus:border-white/50 focus:shadow-xl"
-            />
+              {onlyFavorites ? "Mostrando favoritas" : "Filtrar favoritas"}
+            </button>
           </div>
 
-          <div className="mb-4 flex items-center justify-between">
-            <h2 className="text-xl font-semibold">
+          <div className="mb-5 flex items-center justify-between">
+            <h2 className="text-2xl font-semibold">
               {form.id ? "Editar vino" : "Cargar vino"}
             </h2>
+
             {form.id ? (
               <button
                 type="button"
-                onClick={() => setForm(emptyForm)}
-                className="rounded-full border border-white/20 px-4 py-2 text-sm font-medium text-white/90 transition hover:bg-white/10"
+                onClick={cancelEdit}
+                className="rounded-2xl border border-white/20 px-4 py-2 text-sm font-medium text-white hover:bg-white/10"
               >
                 Cancelar edición
               </button>
@@ -192,158 +253,159 @@ export default function Page() {
             <Field
               label="Nombre"
               value={form.nombre}
-              onChange={(value) => handleChange("nombre", value)}
+              onChange={(value) => updateForm("nombre", value)}
               placeholder="Ej. DV Catena Malbec-Malbec"
             />
             <Field
               label="Bodega"
               value={form.bodega}
-              onChange={(value) => handleChange("bodega", value)}
+              onChange={(value) => updateForm("bodega", value)}
               placeholder="Ej. Catena Zapata"
             />
             <Field
               label="Corte / varietal"
               value={form.corte}
-              onChange={(value) => handleChange("corte", value)}
+              onChange={(value) => updateForm("corte", value)}
               placeholder="Ej. Malbec, Blend, Pinot Noir"
             />
             <Field
               label="Región"
               value={form.region}
-              onChange={(value) => handleChange("region", value)}
+              onChange={(value) => updateForm("region", value)}
               placeholder="Ej. Valle de Uco"
             />
             <Field
               label="Cosecha"
               value={form.cosecha}
-              onChange={(value) => handleChange("cosecha", value)}
+              onChange={(value) => updateForm("cosecha", value)}
               placeholder="Ej. 2020"
             />
             <Field
-              label="Cantidad"
+              label="Botellas actuales"
               type="number"
               value={String(form.cantidad)}
-              onChange={(value) =>
-                handleChange("cantidad", Number(value) || 1)
-              }
+              onChange={(value) => updateForm("cantidad", Math.max(0, Number(value) || 0))}
               placeholder="1"
             />
             <Field
               label="Ubicación"
               value={form.ubicacion}
-              onChange={(value) => handleChange("ubicacion", value)}
+              onChange={(value) => updateForm("ubicacion", value)}
               placeholder="Ej. Estante A, fila 2"
             />
             <Field
               label="Precio"
               value={form.precio}
-              onChange={(value) => handleChange("precio", value)}
+              onChange={(value) => updateForm("precio", value)}
               placeholder="Ej. 25000"
             />
           </div>
 
-          <div className="mt-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <label className="flex items-center gap-3 text-sm text-white/90">
-              <input
-                type="checkbox"
-                checked={form.favorita}
-                onChange={(e) => handleChange("favorita", e.target.checked)}
-                className="h-4 w-4 rounded border-white/20"
-              />
-              Marcar como favorita
-            </label>
+          <div className="mt-5 grid grid-cols-1 gap-4 md:grid-cols-2">
+            <TextAreaField
+              label="Comentario"
+              value={form.comentario}
+              onChange={(value) => updateForm("comentario", value)}
+              placeholder="Dato corto: dónde lo compraste, para qué ocasión lo guardás, etc."
+            />
 
+            <TextAreaField
+              label="Reseña si se abrió"
+              value={form.resena}
+              onChange={(value) => updateForm("resena", value)}
+              placeholder="Cómo estaba el vino, si rindió, si repetirías o no..."
+            />
+          </div>
+
+          <div className="mt-5 grid grid-cols-1 gap-4 md:grid-cols-2">
+            <Field
+              label="Puntaje"
+              value={form.puntaje}
+              onChange={(value) => updateForm("puntaje", value)}
+              placeholder="Ej. 8.5 / 10"
+            />
+
+            <div className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3">
+              <label className="flex items-center gap-3 text-sm text-white/90">
+                <input
+                  type="checkbox"
+                  checked={form.favorita}
+                  onChange={(e) => updateForm("favorita", e.target.checked)}
+                  className="h-4 w-4 rounded"
+                />
+                Marcar como favorita
+              </label>
+
+              <label className="mt-3 flex items-center gap-3 text-sm text-white/90">
+                <input
+                  type="checkbox"
+                  checked={form.volverComprar}
+                  onChange={(e) => updateForm("volverComprar", e.target.checked)}
+                  className="h-4 w-4 rounded"
+                />
+                Volvería a comprar
+              </label>
+            </div>
+          </div>
+
+          <div className="mt-6 flex justify-end">
             <button
               type="button"
-              onClick={guardarVino}
-              className="rounded-2xl bg-white px-5 py-3 text-base font-semibold text-[#2c0b1d] shadow-lg transition hover:scale-[1.02] hover:shadow-2xl"
+              onClick={saveWine}
+              className="rounded-2xl bg-white px-5 py-3 text-base font-bold text-[#3b112c] shadow-xl transition hover:scale-[1.02]"
             >
               {form.id ? "Guardar cambios" : "Guardar vino"}
             </button>
           </div>
         </section>
 
-        <section>
-          <div className="mb-4 flex items-center justify-between">
-            <h2 className="text-2xl font-semibold">Tu cava</h2>
-            <p className="text-sm text-white/75">
-              {vinosFiltrados.length} resultado{vinosFiltrados.length === 1 ? "" : "s"}
-            </p>
+        <SectionTitle
+          title="Vinos en cava"
+          subtitle="Lo que todavía está disponible para abrir o seguir guardando."
+          count={winesInCellar.length}
+        />
+
+        {winesInCellar.length === 0 ? (
+          <EmptyState text="No hay vinos disponibles en la cava con este filtro." />
+        ) : (
+          <div className="mb-10 grid grid-cols-1 gap-4">
+            {winesInCellar.map((wine) => (
+              <WineCard
+                key={wine.id}
+                wine={wine}
+                onEdit={editWine}
+                onDelete={deleteWine}
+                onToggleFavorite={toggleFavorite}
+                onOpenOne={openOneBottle}
+                onAddOne={addOneBottle}
+              />
+            ))}
           </div>
+        )}
 
-          {vinosFiltrados.length === 0 ? (
-            <div className="rounded-3xl border border-white/10 bg-white/5 p-8 text-center shadow-xl backdrop-blur">
-              <p className="text-lg font-medium text-white/90">
-                Todavía no hay vinos cargados.
-              </p>
-              <p className="mt-2 text-sm text-white/70">
-                Empezá por una botella y después la app hace el resto. Sin drama,
-                sin corcho volando.
-              </p>
-            </div>
-          ) : (
-            <div className="grid grid-cols-1 gap-4">
-              {vinosFiltrados.map((vino) => (
-                <article
-                  key={vino.id}
-                  className="rounded-3xl border border-white/10 bg-white p-5 text-black shadow-xl"
-                >
-                  <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
-                    <div className="min-w-0">
-                      <div className="mb-2 flex flex-wrap items-center gap-2">
-                        <h3 className="text-2xl font-bold text-[#3a0f2a]">
-                          {vino.nombre || "Sin nombre"}
-                        </h3>
-                        {vino.favorita ? (
-                          <span className="rounded-full bg-amber-100 px-3 py-1 text-xs font-semibold text-amber-700">
-                            ★ Favorita
-                          </span>
-                        ) : null}
-                      </div>
+        <SectionTitle
+          title="Vinos ya tomados"
+          subtitle="Etiquetas sin stock, pero con memoria, puntaje y revancha."
+          count={winesConsumed.length}
+        />
 
-                      <p className="text-sm text-gray-700">
-                        <span className="font-semibold">Bodega:</span> {vino.bodega || "—"}
-                      </p>
-
-                      <div className="mt-3 grid grid-cols-1 gap-2 text-sm text-gray-700 sm:grid-cols-2 lg:grid-cols-3">
-                        <Info label="Corte" value={vino.corte} />
-                        <Info label="Región" value={vino.region} />
-                        <Info label="Cosecha" value={vino.cosecha} />
-                        <Info label="Cantidad" value={String(vino.cantidad)} />
-                        <Info label="Ubicación" value={vino.ubicacion} />
-                        <Info label="Precio" value={vino.precio ? `$${vino.precio}` : ""} />
-                      </div>
-                    </div>
-
-                    <div className="flex shrink-0 flex-wrap gap-2">
-                      <button
-                        type="button"
-                        onClick={() => toggleFavorita(vino.id)}
-                        className="rounded-2xl bg-amber-50 px-4 py-2 text-sm font-medium text-amber-700 transition hover:bg-amber-100"
-                      >
-                        {vino.favorita ? "Quitar favorita" : "Marcar favorita"}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => editarVino(vino)}
-                        className="rounded-2xl bg-[#5C1242] px-4 py-2 text-sm font-medium text-white transition hover:bg-[#4a0f35]"
-                      >
-                        Editar
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => borrarVino(vino.id)}
-                        className="rounded-2xl bg-red-50 px-4 py-2 text-sm font-medium text-red-700 transition hover:bg-red-100"
-                      >
-                        Borrar
-                      </button>
-                    </div>
-                  </div>
-                </article>
-              ))}
-            </div>
-          )}
-        </section>
+        {winesConsumed.length === 0 ? (
+          <EmptyState text="Todavía no hay vinos agotados o ya tomados." />
+        ) : (
+          <div className="grid grid-cols-1 gap-4">
+            {winesConsumed.map((wine) => (
+              <WineCard
+                key={wine.id}
+                wine={wine}
+                onEdit={editWine}
+                onDelete={deleteWine}
+                onToggleFavorite={toggleFavorite}
+                onOpenOne={openOneBottle}
+                onAddOne={addOneBottle}
+              />
+            ))}
+          </div>
+        )}
       </div>
     </main>
   );
@@ -383,8 +445,65 @@ function Field({
         value={value}
         onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder}
-        className="w-full rounded-2xl border border-white/20 bg-white px-4 py-3 text-base text-black placeholder:text-gray-500 shadow-lg outline-none transition focus:border-white/50 focus:shadow-xl"
+        className="w-full rounded-2xl border border-white/20 bg-white px-4 py-3 text-black placeholder:text-gray-500 shadow-lg outline-none transition focus:border-white/40"
       />
+    </div>
+  );
+}
+
+function TextAreaField({
+  label,
+  value,
+  onChange,
+  placeholder,
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  placeholder?: string;
+}) {
+  return (
+    <div>
+      <label className="mb-2 block text-sm font-medium text-white/90">
+        {label}
+      </label>
+      <textarea
+        rows={4}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={placeholder}
+        className="w-full rounded-2xl border border-white/20 bg-white px-4 py-3 text-black placeholder:text-gray-500 shadow-lg outline-none transition focus:border-white/40"
+      />
+    </div>
+  );
+}
+
+function SectionTitle({
+  title,
+  subtitle,
+  count,
+}: {
+  title: string;
+  subtitle: string;
+  count: number;
+}) {
+  return (
+    <div className="mb-4 flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
+      <div>
+        <h2 className="text-2xl font-semibold">{title}</h2>
+        <p className="text-sm text-white/70">{subtitle}</p>
+      </div>
+      <p className="text-sm text-white/75">
+        {count} resultado{count === 1 ? "" : "s"}
+      </p>
+    </div>
+  );
+}
+
+function EmptyState({ text }: { text: string }) {
+  return (
+    <div className="mb-10 rounded-[28px] border border-white/10 bg-white/5 p-8 text-center shadow-2xl backdrop-blur">
+      <p className="text-base text-white/80">{text}</p>
     </div>
   );
 }
@@ -395,5 +514,129 @@ function Info({ label, value }: { label: string; value?: string }) {
       <span className="mr-1 font-semibold text-gray-900">{label}:</span>
       <span className="text-gray-700">{value?.trim() ? value : "—"}</span>
     </div>
+  );
+}
+
+function WineCard({
+  wine,
+  onEdit,
+  onDelete,
+  onToggleFavorite,
+  onOpenOne,
+  onAddOne,
+}: {
+  wine: Wine;
+  onEdit: (wine: Wine) => void;
+  onDelete: (id: string) => void;
+  onToggleFavorite: (id: string) => void;
+  onOpenOne: (id: string) => void;
+  onAddOne: (id: string) => void;
+}) {
+  const noStock = wine.cantidad === 0;
+
+  return (
+    <article className="rounded-[28px] border border-white/10 bg-white p-5 text-black shadow-2xl">
+      <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+        <div className="min-w-0 flex-1">
+          <div className="mb-2 flex flex-wrap items-center gap-2">
+            <h3 className="text-2xl font-bold text-[#3b112c]">
+              {wine.nombre || "Sin nombre"}
+            </h3>
+
+            {wine.favorita ? (
+              <span className="rounded-full bg-amber-100 px-3 py-1 text-xs font-semibold text-amber-700">
+                ★ Favorita
+              </span>
+            ) : null}
+
+            {wine.volverComprar ? (
+              <span className="rounded-full bg-emerald-100 px-3 py-1 text-xs font-semibold text-emerald-700">
+                ✔ Volvería a comprar
+              </span>
+            ) : null}
+
+            {noStock ? (
+              <span className="rounded-full bg-zinc-200 px-3 py-1 text-xs font-semibold text-zinc-700">
+                Sin stock
+              </span>
+            ) : null}
+          </div>
+
+          <p className="text-sm text-gray-700">
+            <span className="font-semibold">Bodega:</span> {wine.bodega || "—"}
+          </p>
+
+          <div className="mt-3 grid grid-cols-1 gap-2 text-sm text-gray-700 sm:grid-cols-2 xl:grid-cols-4">
+            <Info label="Corte" value={wine.corte} />
+            <Info label="Región" value={wine.region} />
+            <Info label="Cosecha" value={wine.cosecha} />
+            <Info label="Botellas" value={String(wine.cantidad)} />
+            <Info label="Ubicación" value={wine.ubicacion} />
+            <Info label="Precio" value={wine.precio ? `$${wine.precio}` : ""} />
+            <Info label="Puntaje" value={wine.puntaje} />
+          </div>
+
+          {wine.comentario?.trim() ? (
+            <div className="mt-4 rounded-2xl bg-gray-50 px-4 py-3">
+              <p className="mb-1 text-sm font-semibold text-[#3b112c]">
+                Comentario
+              </p>
+              <p className="text-sm text-gray-700">{wine.comentario}</p>
+            </div>
+          ) : null}
+
+          {wine.resena?.trim() ? (
+            <div className="mt-3 rounded-2xl bg-amber-50 px-4 py-3">
+              <p className="mb-1 text-sm font-semibold text-[#3b112c]">
+                Reseña
+              </p>
+              <p className="text-sm text-gray-700">{wine.resena}</p>
+            </div>
+          ) : null}
+        </div>
+
+        <div className="flex shrink-0 flex-wrap gap-2 md:max-w-[280px] md:justify-end">
+          <button
+            type="button"
+            onClick={() => onOpenOne(wine.id)}
+            className="rounded-2xl bg-[#5C1242] px-4 py-2 text-sm font-medium text-white transition hover:bg-[#4b1036]"
+          >
+            Abrí una
+          </button>
+
+          <button
+            type="button"
+            onClick={() => onAddOne(wine.id)}
+            className="rounded-2xl bg-emerald-100 px-4 py-2 text-sm font-medium text-emerald-700 transition hover:bg-emerald-200"
+          >
+            Sumar una
+          </button>
+
+          <button
+            type="button"
+            onClick={() => onToggleFavorite(wine.id)}
+            className="rounded-2xl bg-amber-50 px-4 py-2 text-sm font-medium text-amber-700 transition hover:bg-amber-100"
+          >
+            {wine.favorita ? "Quitar favorita" : "Marcar favorita"}
+          </button>
+
+          <button
+            type="button"
+            onClick={() => onEdit(wine)}
+            className="rounded-2xl bg-zinc-100 px-4 py-2 text-sm font-medium text-zinc-800 transition hover:bg-zinc-200"
+          >
+            Editar
+          </button>
+
+          <button
+            type="button"
+            onClick={() => onDelete(wine.id)}
+            className="rounded-2xl bg-red-50 px-4 py-2 text-sm font-medium text-red-700 transition hover:bg-red-100"
+          >
+            Borrar
+          </button>
+        </div>
+      </div>
+    </article>
   );
 }
